@@ -17,6 +17,11 @@ type Entity = {
   schema?: string;
 };
 
+type V2ManualTarget = {
+  acronym: string;
+  schema?: string;
+};
+
 type PaginationState = {
   page: number;
   pageSize: number;
@@ -106,6 +111,7 @@ export default function Home() {
   const [pagination, setPagination] = useState<PaginationState>(INITIAL_PAGINATION);
   const [viewMode, setViewMode] = useState<"table" | "json">("table");
   const [v2EntityQuery, setV2EntityQuery] = useState("");
+  const [v2SchemaQuery, setV2SchemaQuery] = useState("");
   const [v2SearchedEntityQuery, setV2SearchedEntityQuery] = useState("");
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const [loadingAuth, setLoadingAuth] = useState(false);
@@ -139,16 +145,32 @@ export default function Home() {
     [currentEntities, selectedEntityId],
   );
 
+  const manualV2Target = useMemo<V2ManualTarget | null>(() => {
+    const acronym = v2EntityQuery.trim();
+    if (!acronym) {
+      return null;
+    }
+
+    const schema = v2SchemaQuery.trim();
+    return {
+      acronym,
+      schema: schema || undefined,
+    };
+  }, [v2EntityQuery, v2SchemaQuery]);
+
+  const effectiveEntity =
+    activeVersion === "v2" ? selectedEntity ?? manualV2Target : selectedEntity;
+
   const columns = useMemo(
     () => Array.from(new Set(records.flatMap((record) => Object.keys(record)))),
     [records],
   );
 
   const filePrefix = useMemo(() => {
-    if (!selectedEntity) return `masterdata-${activeVersion}`;
-    const schemaPart = selectedEntity.schema ? `-${selectedEntity.schema}` : "";
-    return `${selectedEntity.acronym}${schemaPart}-${activeVersion}`;
-  }, [activeVersion, selectedEntity]);
+    if (!effectiveEntity) return `masterdata-${activeVersion}`;
+    const schemaPart = effectiveEntity.schema ? `-${effectiveEntity.schema}` : "";
+    return `${effectiveEntity.acronym}${schemaPart}-${activeVersion}`;
+  }, [activeVersion, effectiveEntity]);
 
   useEffect(() => {
     if (!currentEntities.length) {
@@ -215,6 +237,7 @@ export default function Home() {
       setEntitiesV2(loadedV2);
       setActiveVersion("v1");
       setV2EntityQuery("");
+      setV2SchemaQuery("");
       setV2SearchedEntityQuery("");
       setSelectedEntityId(loadedV1.length ? entityId(loadedV1[0]) : "");
       setRecords([]);
@@ -251,7 +274,7 @@ export default function Home() {
   };
 
   const loadDataPage = async (targetPage: number, targetPageSize: number) => {
-    if (!session || !selectedEntity) return;
+    if (!session || !effectiveEntity) return;
 
     setError(null);
     setLoadingData(true);
@@ -262,8 +285,8 @@ export default function Home() {
         body: JSON.stringify({
           ...session,
           version: activeVersion,
-          entity: selectedEntity.acronym,
-          schema: selectedEntity.schema,
+          entity: effectiveEntity.acronym,
+          schema: effectiveEntity.schema,
           page: targetPage,
           pageSize: targetPageSize,
         }),
@@ -342,7 +365,7 @@ export default function Home() {
     const nextPageSize = Number(event.target.value);
     setPagination((previous) => ({ ...previous, pageSize: nextPageSize }));
 
-    if (!selectedEntity) {
+    if (!effectiveEntity) {
       return;
     }
 
@@ -523,7 +546,10 @@ export default function Home() {
                   className="w-full rounded-xl border border-slate-200 bg-slate-100 px-4 py-3 outline-none focus:border-blue-500"
                   placeholder="Ex: CL, CN, newsletter"
                   value={v2EntityQuery}
-                  onChange={(event) => setV2EntityQuery(event.target.value)}
+                  onChange={(event) => {
+                    setV2EntityQuery(event.target.value);
+                    setSelectedEntityId("");
+                  }}
                 />
                 <button
                   type="submit"
@@ -533,25 +559,35 @@ export default function Home() {
                 </button>
               </form>
 
-              <select
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 outline-none focus:border-blue-500"
-                value={selectedEntityId}
-                onChange={(event) => {
-                  setSelectedEntityId(event.target.value);
-                  setRecords([]);
-                  setPagination(INITIAL_PAGINATION);
-                }}
-              >
-                {!filteredV2Entities.length ? (
-                  <option value="">Nenhuma entidade encontrada</option>
-                ) : null}
-                {filteredV2Entities.map((entity) => (
-                  <option key={entityId(entity)} value={entityId(entity)}>
-                    {entity.name ?? entity.acronym}
-                    {entity.schema ? ` (${entity.schema})` : ""}
-                  </option>
-                ))}
-              </select>
+              <input
+                className="w-full rounded-xl border border-slate-200 bg-slate-100 px-4 py-3 outline-none focus:border-blue-500"
+                placeholder="Schema (opcional)"
+                value={v2SchemaQuery}
+                onChange={(event) => setV2SchemaQuery(event.target.value)}
+              />
+
+              {filteredV2Entities.length > 0 ? (
+                <select
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 outline-none focus:border-blue-500"
+                  value={selectedEntityId}
+                  onChange={(event) => {
+                    setSelectedEntityId(event.target.value);
+                    setRecords([]);
+                    setPagination(INITIAL_PAGINATION);
+                  }}
+                >
+                  {filteredV2Entities.map((entity) => (
+                    <option key={entityId(entity)} value={entityId(entity)}>
+                      {entity.name ?? entity.acronym}
+                      {entity.schema ? ` (${entity.schema})` : ""}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <p className="rounded-xl bg-slate-100 px-4 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Sem lista de entidades para o filtro atual. Use o campo manual para consultar.
+                </p>
+              )}
             </div>
           )}
 
@@ -582,7 +618,7 @@ export default function Home() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <h2 className="text-3xl font-bold uppercase">
-                {selectedEntity?.acronym ?? "-"}
+                {effectiveEntity?.acronym ?? "-"}
               </h2>
               <p className="mt-1 text-sm font-semibold text-slate-500">
                 Vendor: {session.accountName} • Versão: {activeVersion.toUpperCase()}
@@ -627,7 +663,7 @@ export default function Home() {
               type="button"
               className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
               onClick={handleLoadData}
-              disabled={!selectedEntity || loadingData}
+                disabled={!effectiveEntity || loadingData}
             >
               {loadingData ? "Carregando..." : "Carregar dados"}
             </button>

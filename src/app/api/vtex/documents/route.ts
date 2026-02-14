@@ -30,6 +30,79 @@ const buildHeaders = (appKey: string, appToken: string) => ({
 const buildBaseUrl = (accountName: string) =>
   `https://${accountName}.vtexcommercestable.com.br`;
 
+const fetchSchemas = async (
+  baseUrl: string,
+  entity: string,
+  headers: Record<string, string>,
+) => {
+  const schemasResponse = await fetch(
+    `${baseUrl}/api/dataentities/${entity}/schemas`,
+    {
+      method: "GET",
+      headers,
+      cache: "no-store",
+    },
+  );
+
+  if (!schemasResponse.ok) {
+    return [] as string[];
+  }
+
+  const schemas = (await schemasResponse.json()) as { name?: string }[];
+  return schemas
+    .map((item) => item.name)
+    .filter((name): name is string => Boolean(name));
+};
+
+const fetchRecordsBySchema = async (
+  baseUrl: string,
+  entity: string,
+  headers: Record<string, string>,
+  page: number,
+  pageSize: number,
+  schemaName?: string,
+) => {
+  const query = new URLSearchParams({
+    _page: String(page),
+    _size: String(pageSize),
+    _fields: "_all",
+  });
+
+  if (schemaName) {
+    query.set("_schema", schemaName);
+  }
+
+  const response = await fetch(
+    `${baseUrl}/api/dataentities/${entity}/search?${query.toString()}`,
+    {
+      method: "GET",
+      headers,
+      cache: "no-store",
+    },
+  );
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      records: [] as Record<string, unknown>[],
+      total: null as number | null,
+      schemaUsed: schemaName,
+    };
+  }
+
+  const records = (await response.json()) as Record<string, unknown>[];
+  const total = parseTotalFromHeaders(response.headers);
+
+  return {
+    ok: true,
+    status: response.status,
+    records,
+    total,
+    schemaUsed: schemaName,
+  };
+};
+
 const parseTotalFromHeaders = (headers: Headers): number | null => {
   const directTotal = headers.get("x-vtex-md-total");
   if (directTotal && Number.isFinite(Number(directTotal))) {
@@ -72,64 +145,68 @@ export async function POST(request: Request) {
 
     const baseUrl = buildBaseUrl(accountName);
     const headers = buildHeaders(appKey, appToken);
-    const query = new URLSearchParams({
-      _page: String(page),
-      _size: String(pageSize),
-      _fields: "_all",
-    });
+    let queryResult = await fetchRecordsBySchema(
+      baseUrl,
+      entity,
+      headers,
+      page,
+      pageSize,
+      undefined,
+    );
 
     if (version === "v2") {
       let schemaToUse = schema;
 
       if (!schemaToUse) {
-        const schemasResponse = await fetch(
-          `${baseUrl}/api/dataentities/${entity}/schemas`,
-          {
-            method: "GET",
-            headers,
-            cache: "no-store",
-          },
-        );
-
-        if (!schemasResponse.ok) {
-          return NextResponse.json(
-            { error: "Não foi possível obter schemas do MasterData V2." },
-            { status: schemasResponse.status },
-          );
-        }
-
-        const schemas = (await schemasResponse.json()) as { name?: string }[];
-        schemaToUse = schemas.find((item) => item.name)?.name;
-
-        if (!schemaToUse) {
-          return NextResponse.json(
-            { error: "Nenhum schema disponível para esta entidade no V2." },
-            { status: 400 },
-          );
-        }
+        const schemas = await fetchSchemas(baseUrl, entity, headers);
+        schemaToUse = schemas[0];
       }
 
-      query.set("_schema", schemaToUse);
-    }
+      if (!schemaToUse) {
+        return NextResponse.json(
+          { error: "Nenhum schema disponível para esta entidade no V2." },
+          { status: 400 },
+        );
+      }
 
-    const response = await fetch(
-      `${baseUrl}/api/dataentities/${entity}/search?${query.toString()}`,
-      {
-        method: "GET",
+      queryResult = await fetchRecordsBySchema(
+        baseUrl,
+        entity,
         headers,
-        cache: "no-store",
-      },
-    );
-
-    if (!response.ok) {
-      return NextResponse.json(
-        { error: "Falha ao carregar registros da entidade." },
-        { status: response.status },
+        page,
+        pageSize,
+        schemaToUse,
       );
     }
 
-    const records = (await response.json()) as Record<string, unknown>[];
-    const total = parseTotalFromHeaders(response.headers);
+    if (version === "v1" && queryResult.ok && queryResult.records.length === 0) {
+      const schemas = await fetchSchemas(baseUrl, entity, headers);
+
+      for (const schemaName of schemas) {
+        const fallbackResult = await fetchRecordsBySchema(
+          baseUrl,
+          entity,
+          headers,
+          page,
+          pageSize,
+          schemaName,
+        );
+
+        if (fallbackResult.ok && fallbackResult.records.length > 0) {
+          queryResult = fallbackResult;
+          break;
+        }
+      }
+    }
+
+    if (!queryResult.ok) {
+      return NextResponse.json(
+        { error: "Falha ao carregar registros da entidade." },
+        { status: queryResult.status },
+      );
+    }
+
+    const { records, total } = queryResult;
     const computedTotalPages =
       total !== null ? Math.max(1, Math.ceil(total / pageSize)) : null;
 
@@ -145,7 +222,7 @@ export async function POST(request: Request) {
           : records.length === pageSize,
     };
 
-    return NextResponse.json({ records, pagination });
+    return NextResponse.json({ records, pagination, schemaUsed: queryResult.schemaUsed ?? null });
   } catch {
     return NextResponse.json(
       { error: "Erro ao consultar registros do MasterData." },
