@@ -1,36 +1,69 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Projeto Next.js pronto para GitHub + Vercel
 
-## Getting Started
+Projeto criado com Next.js (App Router), TypeScript, ESLint e Tailwind CSS.
 
-First, run the development server:
+## Rodar localmente
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Acesse `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Scripts principais
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run dev     # desenvolvimento
+npm run lint    # checagem de lint
+npm run build   # build de produção
+npm run start   # sobe build de produção local
+```
 
-## Learn More
+## Integração com GitHub
 
-To learn more about Next.js, take a look at the following resources:
+Este projeto já inclui pipeline em `.github/workflows/ci.yml` para:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- instalar dependências (`npm ci`)
+- rodar lint (`npm run lint`)
+- rodar build (`npm run build`)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Publicar no GitHub
 
-## Deploy on Vercel
+```bash
+git add .
+git commit -m "feat: iniciar projeto Next.js"
+git branch -M main
+git remote add origin https://github.com/SEU_USUARIO/SEU_REPOSITORIO.git
+git push -u origin main
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Deploy na Vercel
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. Entre em [https://vercel.com/new](https://vercel.com/new)
+2. Importe o repositório do GitHub
+3. Framework detectado: **Next.js**
+4. Clique em **Deploy**
+
+Depois disso, cada push no `main` gera novo deploy automaticamente na Vercel.
+
+## Proteção da branch `main`
+
+Depois de criar o repositório no GitHub e fazer login no CLI:
+
+```bash
+gh auth login
+gh repo set-default SEU_USUARIO/SEU_REPOSITORIO
+gh api \
+	-X PUT \
+	repos/SEU_USUARIO/SEU_REPOSITORIO/branches/main/protection \
+	-H "Accept: application/vnd.github+json" \
+	-f required_status_checks.strict=true \
+	-F required_status_checks.contexts[]='build-and-lint' \
+	-f enforce_admins=true \
+	-f required_pull_request_reviews.dismiss_stale_reviews=true \
+	-f required_pull_request_reviews.required_approving_review_count=1 \
+	-f restrictions=
+```
+
+Isso exige PR com 1 aprovação e CI passando antes de merge na `main`.
