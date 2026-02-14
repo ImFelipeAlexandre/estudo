@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 
 type Version = "v1" | "v2";
@@ -86,12 +86,34 @@ export default function Home() {
   const [selectedEntityId, setSelectedEntityId] = useState<string>("");
   const [records, setRecords] = useState<Record<string, unknown>[]>([]);
   const [viewMode, setViewMode] = useState<"table" | "json">("table");
+  const [v2EntityQuery, setV2EntityQuery] = useState("");
+  const [v2SearchedEntityQuery, setV2SearchedEntityQuery] = useState("");
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const [loadingAuth, setLoadingAuth] = useState(false);
   const [loadingEntities, setLoadingEntities] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const resizingStateRef = useRef<{
+    column: string;
+    startX: number;
+    startWidth: number;
+  } | null>(null);
 
-  const currentEntities = activeVersion === "v1" ? entitiesV1 : entitiesV2;
+  const filteredV2Entities = useMemo(() => {
+    const term = v2SearchedEntityQuery.trim().toLowerCase();
+
+    if (!term) {
+      return entitiesV2;
+    }
+
+    return entitiesV2.filter((entity) => {
+      const source = `${entity.acronym} ${entity.name ?? ""} ${entity.schema ?? ""}`;
+      return source.toLowerCase().includes(term);
+    });
+  }, [entitiesV2, v2SearchedEntityQuery]);
+
+  const currentEntities =
+    activeVersion === "v1" ? entitiesV1 : filteredV2Entities;
 
   const selectedEntity = useMemo(
     () => currentEntities.find((entity) => entityId(entity) === selectedEntityId),
@@ -120,6 +142,35 @@ export default function Home() {
     }
   }, [currentEntities, selectedEntityId]);
 
+  useEffect(() => {
+    const onMouseMove = (event: MouseEvent) => {
+      const resizing = resizingStateRef.current;
+      if (!resizing) return;
+
+      const nextWidth = Math.max(
+        120,
+        resizing.startWidth + (event.clientX - resizing.startX),
+      );
+
+      setColumnWidths((previous) => ({
+        ...previous,
+        [resizing.column]: nextWidth,
+      }));
+    };
+
+    const onMouseUp = () => {
+      resizingStateRef.current = null;
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
+
   const loadVersionEntities = async (version: Version, creds: Credentials) => {
     const loadedEntities = await fetchEntities(creds, version);
     if (version === "v1") {
@@ -144,8 +195,11 @@ export default function Home() {
       setEntitiesV1(loadedV1);
       setEntitiesV2(loadedV2);
       setActiveVersion("v1");
+      setV2EntityQuery("");
+      setV2SearchedEntityQuery("");
       setSelectedEntityId(loadedV1.length ? entityId(loadedV1[0]) : "");
       setRecords([]);
+      setColumnWidths({});
       setViewMode("table");
     } catch (authError) {
       setError(
@@ -205,6 +259,7 @@ export default function Home() {
       }
 
       setRecords(payload.records ?? []);
+      setColumnWidths({});
     } catch (loadError) {
       setError(
         loadError instanceof Error
@@ -237,6 +292,29 @@ export default function Home() {
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Dados");
     XLSX.writeFile(workbook, `${filePrefix}.xlsx`);
+  };
+
+  const handleSearchV2Entities = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setRecords([]);
+    setV2SearchedEntityQuery(v2EntityQuery.trim());
+  };
+
+  const startColumnResize = (
+    event: React.MouseEvent<HTMLButtonElement>,
+    column: string,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const fallbackWidth = 220;
+    const startWidth = columnWidths[column] ?? fallbackWidth;
+
+    resizingStateRef.current = {
+      column,
+      startX: event.clientX,
+      startWidth,
+    };
   };
 
   if (!session) {
@@ -338,6 +416,7 @@ export default function Home() {
                 onClick={() => {
                   setActiveVersion("v1");
                   setRecords([]);
+                  setError(null);
                 }}
                 type="button"
               >
@@ -350,6 +429,7 @@ export default function Home() {
                 onClick={() => {
                   setActiveVersion("v2");
                   setRecords([]);
+                  setError(null);
                 }}
                 type="button"
               >
@@ -358,29 +438,69 @@ export default function Home() {
             </div>
           </div>
 
-          <label className="mt-5 block space-y-2">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-              Entidade {activeVersion.toUpperCase()}
-            </span>
-            <select
-              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 outline-none focus:border-blue-500"
-              value={selectedEntityId}
-              onChange={(event) => {
-                setSelectedEntityId(event.target.value);
-                setRecords([]);
-              }}
-            >
-              {!currentEntities.length ? (
-                <option value="">Nenhuma entidade encontrada</option>
-              ) : null}
-              {currentEntities.map((entity) => (
-                <option key={entityId(entity)} value={entityId(entity)}>
-                  {entity.name ?? entity.acronym}
-                  {entity.schema ? ` (${entity.schema})` : ""}
-                </option>
-              ))}
-            </select>
-          </label>
+          {activeVersion === "v1" ? (
+            <label className="mt-5 block space-y-2">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Entidade V1
+              </span>
+              <select
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 outline-none focus:border-blue-500"
+                value={selectedEntityId}
+                onChange={(event) => {
+                  setSelectedEntityId(event.target.value);
+                  setRecords([]);
+                }}
+              >
+                {!entitiesV1.length ? (
+                  <option value="">Nenhuma entidade encontrada</option>
+                ) : null}
+                {entitiesV1.map((entity) => (
+                  <option key={entityId(entity)} value={entityId(entity)}>
+                    {entity.name ?? entity.acronym}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <div className="mt-5 space-y-3">
+              <span className="block text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Nome da entidade V2
+              </span>
+              <form onSubmit={handleSearchV2Entities} className="flex gap-2">
+                <input
+                  className="w-full rounded-xl border border-slate-200 bg-slate-100 px-4 py-3 outline-none focus:border-blue-500"
+                  placeholder="Ex: CL, CN, newsletter"
+                  value={v2EntityQuery}
+                  onChange={(event) => setV2EntityQuery(event.target.value)}
+                />
+                <button
+                  type="submit"
+                  className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+                >
+                  Buscar
+                </button>
+              </form>
+
+              <select
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 outline-none focus:border-blue-500"
+                value={selectedEntityId}
+                onChange={(event) => {
+                  setSelectedEntityId(event.target.value);
+                  setRecords([]);
+                }}
+              >
+                {!filteredV2Entities.length ? (
+                  <option value="">Nenhuma entidade encontrada</option>
+                ) : null}
+                {filteredV2Entities.map((entity) => (
+                  <option key={entityId(entity)} value={entityId(entity)}>
+                    {entity.name ?? entity.acronym}
+                    {entity.schema ? ` (${entity.schema})` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <button
             className="mt-4 w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
@@ -413,6 +533,11 @@ export default function Home() {
               <p className="mt-1 text-sm font-semibold text-slate-500">
                 Vendor: {session.accountName} • Versão: {activeVersion.toUpperCase()}
               </p>
+              {activeVersion === "v2" && v2SearchedEntityQuery ? (
+                <p className="mt-1 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Busca V2: &quot;{v2SearchedEntityQuery}&quot; • {filteredV2Entities.length} resultado(s)
+                </p>
+              ) : null}
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -482,12 +607,22 @@ export default function Home() {
           {viewMode === "table" ? (
             <div className="mt-5 overflow-hidden rounded-xl border border-slate-200">
               <div className="max-h-[620px] overflow-auto">
-                <table className="min-w-full border-collapse text-sm">
-                  <thead className="bg-slate-100 text-left uppercase text-xs text-slate-600">
+                <table className="w-max min-w-full border-collapse text-sm">
+                  <thead className="sticky top-0 z-10 bg-slate-100 text-left uppercase text-xs text-slate-600">
                     <tr>
                       {columns.map((column) => (
-                        <th key={column} className="border-b border-slate-200 px-4 py-3">
-                          {column}
+                        <th
+                          key={column}
+                          className="relative border-b border-slate-200 px-4 py-3"
+                          style={{ width: columnWidths[column] ?? 220, minWidth: 120 }}
+                        >
+                          <div className="pr-3">{column}</div>
+                          <button
+                            type="button"
+                            aria-label={`Resize ${column}`}
+                            onMouseDown={(event) => startColumnResize(event, column)}
+                            className="absolute right-0 top-0 h-full w-2 cursor-col-resize bg-transparent hover:bg-blue-200"
+                          />
                         </th>
                       ))}
                     </tr>
@@ -503,7 +638,11 @@ export default function Home() {
                       records.map((row, index) => (
                         <tr key={`${index}-${String(row.id ?? "record")}`} className="odd:bg-white even:bg-slate-50">
                           {columns.map((column) => (
-                            <td key={`${index}-${column}`} className="border-b border-slate-100 px-4 py-3 align-top">
+                            <td
+                              key={`${index}-${column}`}
+                              className="border-b border-slate-100 px-4 py-3 align-top"
+                              style={{ width: columnWidths[column] ?? 220, minWidth: 120 }}
+                            >
                               {typeof row[column] === "object"
                                 ? JSON.stringify(row[column])
                                 : String(row[column] ?? "")}
