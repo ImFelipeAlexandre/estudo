@@ -420,7 +420,7 @@ export default function Home() {
 
   if (!session) {
     return (
-      <div className="min-h-screen bg-slate-100 px-4 py-12 text-slate-900">
+      <div className="min-h-screen overflow-x-hidden bg-slate-100 px-4 py-8 text-slate-900 sm:py-12">
         <div className="mx-auto w-full max-w-xl rounded-2xl bg-white p-8 shadow-sm">
           <p className="text-sm font-semibold tracking-widest text-blue-600">
             VTEX CONFIG
@@ -510,9 +510,9 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 p-4 text-slate-900 lg:p-7">
-      <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-6 lg:flex-row">
-        <aside className="w-full rounded-2xl bg-white p-6 shadow-sm lg:w-80">
+    <div className="min-h-screen overflow-x-hidden bg-slate-100 p-3 text-slate-900 sm:p-4 lg:p-7">
+      <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-4 sm:gap-6 lg:flex-row">
+        <aside className="w-full rounded-2xl bg-white p-4 shadow-sm sm:p-6 lg:w-80">
           <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
             Configuração
           </p>
@@ -652,10 +652,10 @@ export default function Home() {
           </button>
         </aside>
 
-        <main className="flex-1 rounded-2xl bg-white p-5 shadow-sm lg:p-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <main className="min-w-0 flex-1 rounded-2xl bg-white p-4 shadow-sm sm:p-5 lg:p-6">
+          <div className="flex flex-col gap-3 sm:gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <h2 className="text-3xl font-bold uppercase">
+              <h2 className="text-2xl font-bold uppercase sm:text-3xl">
                 {effectiveEntity?.acronym ?? "-"}
               </h2>
               <p className="mt-1 text-sm font-semibold text-slate-500">
@@ -696,7 +696,7 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="mt-5 flex flex-wrap items-center gap-3">
+          <div className="mt-4 flex flex-wrap items-center gap-2 sm:gap-3">
             <button
               type="button"
               className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
@@ -706,7 +706,7 @@ export default function Home() {
               {loadingData ? "Carregando..." : "Carregar dados"}
             </button>
 
-              <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-sm">
+              <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-xs sm:text-sm">
                 <span className="text-slate-500">Por página</span>
                 <select
                   className="rounded-md bg-slate-100 px-2 py-1 outline-none"
@@ -719,7 +719,7 @@ export default function Home() {
                 </select>
               </div>
 
-              <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-sm">
+              <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-xs sm:text-sm">
                 <button
                   type="button"
                   className="rounded-md bg-slate-100 px-2 py-1 font-semibold disabled:opacity-40"
@@ -742,7 +742,7 @@ export default function Home() {
                 </button>
               </div>
 
-            <div className="rounded-xl bg-slate-100 p-1 text-sm font-semibold">
+              <div className="rounded-xl bg-slate-100 p-1 text-xs font-semibold sm:text-sm">
               <button
                 type="button"
                 className={`rounded-lg px-3 py-1.5 ${
@@ -775,18 +775,19 @@ export default function Home() {
           </p>
 
           {viewMode === "table" ? (
-            <div className="mt-5 overflow-hidden rounded-xl border border-slate-200">
-              <div className="max-h-[620px] overflow-auto">
-                <table className="w-max min-w-full border-collapse text-sm">
+            <div className="mt-4 rounded-xl border border-slate-200">
+              <div className="w-full overflow-x-auto overscroll-x-contain">
+                <div className="max-h-[60vh] min-w-[900px] overflow-y-auto">
+                  <table className="w-max min-w-full border-collapse text-sm">
                   <thead className="sticky top-0 z-10 bg-slate-100 text-left uppercase text-xs text-slate-600">
                     <tr>
                       {columns.map((column) => (
                         <th
                           key={column}
-                          className="relative border-b border-slate-200 px-4 py-3"
+                          className="relative border-b border-slate-200 px-3 py-3 sm:px-4"
                           style={{ width: columnWidths[column] ?? 220, minWidth: 120 }}
                         >
-                          <div className="pr-3">{column}</div>
+                          <div className="pr-3 whitespace-nowrap">{column}</div>
                           <button
                             type="button"
                             aria-label={`Resize ${column}`}
@@ -810,12 +811,14 @@ export default function Home() {
                           {columns.map((column) => (
                             <td
                               key={`${index}-${column}`}
-                              className="border-b border-slate-100 px-4 py-3 align-top"
+                              className="border-b border-slate-100 px-3 py-2.5 align-top sm:px-4 sm:py-3"
                               style={{ width: columnWidths[column] ?? 220, minWidth: 120 }}
                             >
-                              {typeof row[column] === "object"
-                                ? JSON.stringify(row[column])
-                                : String(row[column] ?? "")}
+                              <span className="block max-w-[420px] overflow-hidden text-ellipsis whitespace-nowrap">
+                                {typeof row[column] === "object"
+                                  ? JSON.stringify(row[column])
+                                  : String(row[column] ?? "")}
+                              </span>
                             </td>
                           ))}
                         </tr>
@@ -823,6 +826,7 @@ export default function Home() {
                     )}
                   </tbody>
                 </table>
+                </div>
               </div>
             </div>
           ) : (
