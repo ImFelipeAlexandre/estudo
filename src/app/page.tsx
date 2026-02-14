@@ -17,6 +17,24 @@ type Entity = {
   schema?: string;
 };
 
+type PaginationState = {
+  page: number;
+  pageSize: number;
+  total: number | null;
+  totalPages: number | null;
+  hasPrevious: boolean;
+  hasNext: boolean;
+};
+
+const INITIAL_PAGINATION: PaginationState = {
+  page: 1,
+  pageSize: 50,
+  total: null,
+  totalPages: null,
+  hasPrevious: false,
+  hasNext: false,
+};
+
 const entityId = (entity: Entity) => `${entity.acronym}::${entity.schema ?? ""}`;
 
 const toCsv = (rows: Record<string, unknown>[]) => {
@@ -85,6 +103,7 @@ export default function Home() {
   const [activeVersion, setActiveVersion] = useState<Version>("v1");
   const [selectedEntityId, setSelectedEntityId] = useState<string>("");
   const [records, setRecords] = useState<Record<string, unknown>[]>([]);
+  const [pagination, setPagination] = useState<PaginationState>(INITIAL_PAGINATION);
   const [viewMode, setViewMode] = useState<"table" | "json">("table");
   const [v2EntityQuery, setV2EntityQuery] = useState("");
   const [v2SearchedEntityQuery, setV2SearchedEntityQuery] = useState("");
@@ -199,6 +218,7 @@ export default function Home() {
       setV2SearchedEntityQuery("");
       setSelectedEntityId(loadedV1.length ? entityId(loadedV1[0]) : "");
       setRecords([]);
+      setPagination(INITIAL_PAGINATION);
       setColumnWidths({});
       setViewMode("table");
     } catch (authError) {
@@ -230,7 +250,7 @@ export default function Home() {
     }
   };
 
-  const handleLoadData = async () => {
+  const loadDataPage = async (targetPage: number, targetPageSize: number) => {
     if (!session || !selectedEntity) return;
 
     setError(null);
@@ -244,13 +264,14 @@ export default function Home() {
           version: activeVersion,
           entity: selectedEntity.acronym,
           schema: selectedEntity.schema,
-          page: 1,
-          pageSize: 100,
+          page: targetPage,
+          pageSize: targetPageSize,
         }),
       });
 
       const payload = (await response.json()) as {
         records?: Record<string, unknown>[];
+        pagination?: PaginationState;
         error?: string;
       };
 
@@ -259,6 +280,7 @@ export default function Home() {
       }
 
       setRecords(payload.records ?? []);
+      setPagination(payload.pagination ?? INITIAL_PAGINATION);
       setColumnWidths({});
     } catch (loadError) {
       setError(
@@ -267,9 +289,14 @@ export default function Home() {
           : "Erro ao carregar dados.",
       );
       setRecords([]);
+      setPagination(INITIAL_PAGINATION);
     } finally {
       setLoadingData(false);
     }
+  };
+
+  const handleLoadData = async () => {
+    await loadDataPage(1, pagination.pageSize);
   };
 
   const handleExportCsv = () => {
@@ -297,7 +324,29 @@ export default function Home() {
   const handleSearchV2Entities = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setRecords([]);
+    setPagination(INITIAL_PAGINATION);
     setV2SearchedEntityQuery(v2EntityQuery.trim());
+  };
+
+  const handlePreviousPage = async () => {
+    if (!pagination.hasPrevious || loadingData) return;
+    await loadDataPage(pagination.page - 1, pagination.pageSize);
+  };
+
+  const handleNextPage = async () => {
+    if (!pagination.hasNext || loadingData) return;
+    await loadDataPage(pagination.page + 1, pagination.pageSize);
+  };
+
+  const handlePageSizeChange = async (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const nextPageSize = Number(event.target.value);
+    setPagination((previous) => ({ ...previous, pageSize: nextPageSize }));
+
+    if (!selectedEntity) {
+      return;
+    }
+
+    await loadDataPage(1, nextPageSize);
   };
 
   const startColumnResize = (
@@ -416,6 +465,7 @@ export default function Home() {
                 onClick={() => {
                   setActiveVersion("v1");
                   setRecords([]);
+                  setPagination(INITIAL_PAGINATION);
                   setError(null);
                 }}
                 type="button"
@@ -429,6 +479,7 @@ export default function Home() {
                 onClick={() => {
                   setActiveVersion("v2");
                   setRecords([]);
+                  setPagination(INITIAL_PAGINATION);
                   setError(null);
                 }}
                 type="button"
@@ -449,6 +500,7 @@ export default function Home() {
                 onChange={(event) => {
                   setSelectedEntityId(event.target.value);
                   setRecords([]);
+                  setPagination(INITIAL_PAGINATION);
                 }}
               >
                 {!entitiesV1.length ? (
@@ -487,6 +539,7 @@ export default function Home() {
                 onChange={(event) => {
                   setSelectedEntityId(event.target.value);
                   setRecords([]);
+                  setPagination(INITIAL_PAGINATION);
                 }}
               >
                 {!filteredV2Entities.length ? (
@@ -517,6 +570,7 @@ export default function Home() {
             onClick={() => {
               setSession(null);
               setRecords([]);
+              setPagination(INITIAL_PAGINATION);
               setError(null);
             }}
           >
@@ -578,6 +632,42 @@ export default function Home() {
               {loadingData ? "Carregando..." : "Carregar dados"}
             </button>
 
+              <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-sm">
+                <span className="text-slate-500">Por página</span>
+                <select
+                  className="rounded-md bg-slate-100 px-2 py-1 outline-none"
+                  value={pagination.pageSize}
+                  onChange={handlePageSizeChange}
+                >
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-sm">
+                <button
+                  type="button"
+                  className="rounded-md bg-slate-100 px-2 py-1 font-semibold disabled:opacity-40"
+                  onClick={handlePreviousPage}
+                  disabled={!pagination.hasPrevious || loadingData || !records.length}
+                >
+                  ←
+                </button>
+                <span className="font-semibold text-slate-600">
+                  Página {pagination.page}
+                  {pagination.totalPages ? ` / ${pagination.totalPages}` : ""}
+                </span>
+                <button
+                  type="button"
+                  className="rounded-md bg-slate-100 px-2 py-1 font-semibold disabled:opacity-40"
+                  onClick={handleNextPage}
+                  disabled={!pagination.hasNext || loadingData || !records.length}
+                >
+                  →
+                </button>
+              </div>
+
             <div className="rounded-xl bg-slate-100 p-1 text-sm font-semibold">
               <button
                 type="button"
@@ -603,6 +693,12 @@ export default function Home() {
           {error ? (
             <p className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>
           ) : null}
+
+          <p className="mt-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
+            {pagination.total !== null
+              ? `Total de registros: ${pagination.total}`
+              : "Total de registros indisponível para esta consulta."}
+          </p>
 
           {viewMode === "table" ? (
             <div className="mt-5 overflow-hidden rounded-xl border border-slate-200">

@@ -11,6 +11,15 @@ type RequestBody = {
   pageSize?: number;
 };
 
+type Pagination = {
+  page: number;
+  pageSize: number;
+  total: number | null;
+  totalPages: number | null;
+  hasPrevious: boolean;
+  hasNext: boolean;
+};
+
 const buildHeaders = (appKey: string, appToken: string) => ({
   "Content-Type": "application/json",
   Accept: "application/json",
@@ -20,6 +29,25 @@ const buildHeaders = (appKey: string, appToken: string) => ({
 
 const buildBaseUrl = (accountName: string) =>
   `https://${accountName}.vtexcommercestable.com.br`;
+
+const parseTotalFromHeaders = (headers: Headers): number | null => {
+  const directTotal = headers.get("x-vtex-md-total");
+  if (directTotal && Number.isFinite(Number(directTotal))) {
+    return Number(directTotal);
+  }
+
+  const contentRange = headers.get("rest-content-range");
+  if (!contentRange) {
+    return null;
+  }
+
+  const match = contentRange.match(/\/(\d+)$/);
+  if (!match) {
+    return null;
+  }
+
+  return Number(match[1]);
+};
 
 export async function POST(request: Request) {
   try {
@@ -101,8 +129,23 @@ export async function POST(request: Request) {
     }
 
     const records = (await response.json()) as Record<string, unknown>[];
+    const total = parseTotalFromHeaders(response.headers);
+    const computedTotalPages =
+      total !== null ? Math.max(1, Math.ceil(total / pageSize)) : null;
 
-    return NextResponse.json({ records });
+    const pagination: Pagination = {
+      page,
+      pageSize,
+      total,
+      totalPages: computedTotalPages,
+      hasPrevious: page > 1,
+      hasNext:
+        computedTotalPages !== null
+          ? page < computedTotalPages
+          : records.length === pageSize,
+    };
+
+    return NextResponse.json({ records, pagination });
   } catch {
     return NextResponse.json(
       { error: "Erro ao consultar registros do MasterData." },
