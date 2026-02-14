@@ -510,8 +510,8 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-slate-100 p-3 text-slate-900 sm:p-4 lg:p-7">
-      <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-4 sm:gap-6 lg:flex-row">
+    <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-slate-100 p-3 text-slate-900 sm:p-4 lg:p-7">
+      <div className="mx-auto flex w-full max-w-[1400px] min-w-0 flex-col gap-4 sm:gap-6 lg:flex-row">
         <aside className="w-full rounded-2xl bg-white p-4 shadow-sm sm:p-6 lg:w-80">
           <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
             Configuração
@@ -652,7 +652,7 @@ export default function Home() {
           </button>
         </aside>
 
-        <main className="min-w-0 flex-1 rounded-2xl bg-white p-4 shadow-sm sm:p-5 lg:p-6">
+        <main className="min-w-0 w-full max-w-full flex-1 overflow-hidden rounded-2xl bg-white p-4 shadow-sm sm:p-5 lg:p-6">
           <div className="flex flex-col gap-3 sm:gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <h2 className="text-2xl font-bold uppercase sm:text-3xl">
@@ -775,10 +775,13 @@ export default function Home() {
           </p>
 
           {viewMode === "table" ? (
-            <div className="mt-4 rounded-xl border border-slate-200">
-              <div className="w-full overflow-x-auto overscroll-x-contain">
-                <div className="max-h-[60vh] min-w-[900px] overflow-y-auto">
-                  <table className="w-max min-w-full border-collapse text-sm">
+            <div className="mt-4 w-full max-w-full overflow-hidden rounded-xl border border-slate-200">
+              <div className="w-full max-w-full overflow-x-auto overscroll-x-contain [webkit-overflow-scrolling:touch]">
+                <div className="max-h-[60vh] overflow-y-auto">
+                  <table
+                    className="min-w-max border-collapse text-sm"
+                    style={{ minWidth: Math.max(columns.length * 180, 760) }}
+                  >
                   <thead className="sticky top-0 z-10 bg-slate-100 text-left uppercase text-xs text-slate-600">
                     <tr>
                       {columns.map((column) => (
