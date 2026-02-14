@@ -3,6 +3,8 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 
+const LOCAL_STORAGE_CREDENTIALS_KEY = "vtex.md.quick.credentials";
+
 type Version = "v1" | "v2";
 
 type Credentials = {
@@ -103,6 +105,7 @@ export default function Home() {
     appToken: "",
   });
   const [session, setSession] = useState<Credentials | null>(null);
+  const [saveCredentialsLocally, setSaveCredentialsLocally] = useState(false);
   const [entitiesV1, setEntitiesV1] = useState<Entity[]>([]);
   const [entitiesV2, setEntitiesV2] = useState<Entity[]>([]);
   const [activeVersion, setActiveVersion] = useState<Version>("v1");
@@ -184,6 +187,23 @@ export default function Home() {
   }, [currentEntities, selectedEntityId]);
 
   useEffect(() => {
+    const savedRaw = window.localStorage.getItem(LOCAL_STORAGE_CREDENTIALS_KEY);
+    if (!savedRaw) {
+      return;
+    }
+
+    try {
+      const saved = JSON.parse(savedRaw) as Credentials;
+      if (saved.accountName && saved.appKey && saved.appToken) {
+        setCredentials(saved);
+        setSaveCredentialsLocally(true);
+      }
+    } catch {
+      window.localStorage.removeItem(LOCAL_STORAGE_CREDENTIALS_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
     const onMouseMove = (event: MouseEvent) => {
       const resizing = resizingStateRef.current;
       if (!resizing) return;
@@ -244,6 +264,15 @@ export default function Home() {
       setPagination(INITIAL_PAGINATION);
       setColumnWidths({});
       setViewMode("table");
+
+      if (saveCredentialsLocally) {
+        window.localStorage.setItem(
+          LOCAL_STORAGE_CREDENTIALS_KEY,
+          JSON.stringify(credentials),
+        );
+      } else {
+        window.localStorage.removeItem(LOCAL_STORAGE_CREDENTIALS_KEY);
+      }
     } catch (authError) {
       setError(
         authError instanceof Error
@@ -452,6 +481,15 @@ export default function Home() {
                 placeholder="••••••••••••••••••"
                 required
               />
+            </label>
+
+            <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700">
+              <input
+                type="checkbox"
+                checked={saveCredentialsLocally}
+                onChange={(event) => setSaveCredentialsLocally(event.target.checked)}
+              />
+              Salvar dados neste dispositivo para consulta rápida (local)
             </label>
 
             {error ? (
