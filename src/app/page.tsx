@@ -147,7 +147,6 @@ export default function Home() {
   const [viewMode, setViewMode] = useState<"table" | "json">("table");
   const [v2EntityQuery, setV2EntityQuery] = useState("");
   const [v2SchemaQuery, setV2SchemaQuery] = useState("");
-  const [v2SearchedEntityQuery, setV2SearchedEntityQuery] = useState("");
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const [loadingAuth, setLoadingAuth] = useState(false);
   const [loadingEntities, setLoadingEntities] = useState(false);
@@ -329,7 +328,6 @@ export default function Home() {
       setActiveVersion("v1");
       setV2EntityQuery("");
       setV2SchemaQuery("");
-      setV2SearchedEntityQuery("");
       setSelectedEntityId(loadedV1.length ? entityId(loadedV1[0]) : "");
       setRecords([]);
       setPagination(INITIAL_PAGINATION);
@@ -447,13 +445,6 @@ export default function Home() {
       `${filePrefix}.xls`,
       "application/vnd.ms-excel;charset=utf-8;",
     );
-  };
-
-  const handleSearchV2Entities = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setRecords([]);
-    setPagination(INITIAL_PAGINATION);
-    setV2SearchedEntityQuery(v2EntityQuery.trim());
   };
 
   const handlePreviousPage = async () => {
@@ -655,22 +646,16 @@ export default function Home() {
               <span className="block text-xs font-semibold uppercase tracking-wider text-slate-500">
                 Nome da entidade V2
               </span>
-              <form onSubmit={handleSearchV2Entities} className="flex gap-2">
-                <input
-                  className="w-full rounded-xl border border-slate-200 bg-slate-100 px-4 py-3 outline-none focus:border-blue-500"
-                  placeholder="Ex: CL, CN, newsletter"
-                  value={v2EntityQuery}
-                  onChange={(event) => {
-                    setV2EntityQuery(event.target.value);
-                  }}
-                />
-                <button
-                  type="submit"
-                  className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700"
-                >
-                  Buscar
-                </button>
-              </form>
+              <input
+                className="w-full rounded-xl border border-slate-200 bg-slate-100 px-4 py-3 outline-none focus:border-blue-500"
+                placeholder="Ex: CL, CN, newsletter"
+                value={v2EntityQuery}
+                onChange={(event) => {
+                  setV2EntityQuery(event.target.value);
+                  setRecords([]);
+                  setPagination(INITIAL_PAGINATION);
+                }}
+              />
 
               <input
                 className="w-full rounded-xl border border-slate-200 bg-slate-100 px-4 py-3 outline-none focus:border-blue-500"
@@ -715,9 +700,9 @@ export default function Home() {
               <p className="mt-1 text-sm font-semibold text-slate-500">
                 Vendor: {session.accountName} • Versão: {activeVersion.toUpperCase()}
               </p>
-              {activeVersion === "v2" && v2SearchedEntityQuery ? (
+              {activeVersion === "v2" && v2EntityQuery.trim() ? (
                 <p className="mt-1 text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Busca V2: &quot;{v2SearchedEntityQuery}&quot;
+                  Entidade manual V2: &quot;{v2EntityQuery.trim()}&quot;
                 </p>
               ) : null}
             </div>
