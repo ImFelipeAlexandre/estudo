@@ -70,9 +70,14 @@ const fetchRecordsBySchema = async (
   pageSize: number,
   schemaName?: string,
 ) => {
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
   const query = new URLSearchParams({
     _page: String(page),
     _size: String(pageSize),
+    _from: String(from),
+    _to: String(to),
     _fields: "_all",
   });
 
