@@ -1,4 +1,10 @@
 import { NextResponse } from "next/server";
+import {
+  checkRateLimit,
+  extractClientIp,
+  normalizeValue,
+  validateCredentials,
+} from "@/lib/security";
 
 type VtexEntity = {
   acronym: string;
@@ -25,14 +31,35 @@ const buildBaseUrl = (accountName: string) =>
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as RequestBody;
-    const { accountName, appKey, appToken, version = "v1" } = body;
+    const requesterIp = extractClientIp(request);
+    const rateLimit = checkRateLimit(`entities:${requesterIp}`, 120, 60_000);
 
-    if (!accountName || !appKey || !appToken) {
+    if (!rateLimit.allowed) {
       return NextResponse.json(
-        { error: "Informe vendor, app key e app token." },
-        { status: 400 },
+        { error: "Muitas requisições. Tente novamente em instantes." },
+        { status: 429 },
       );
+    }
+
+    const body = (await request.json()) as RequestBody;
+    const {
+      accountName: rawAccountName,
+      appKey: rawAppKey,
+      appToken: rawAppToken,
+      version = "v1",
+    } = body;
+
+    if (version !== "v1" && version !== "v2") {
+      return NextResponse.json({ error: "Versão inválida." }, { status: 400 });
+    }
+
+    const accountName = normalizeValue(rawAccountName);
+    const appKey = normalizeValue(rawAppKey);
+    const appToken = normalizeValue(rawAppToken);
+
+    const credentialsError = validateCredentials(accountName, appKey, appToken);
+    if (credentialsError) {
+      return NextResponse.json({ error: credentialsError }, { status: 400 });
     }
 
     const baseUrl = buildBaseUrl(accountName);

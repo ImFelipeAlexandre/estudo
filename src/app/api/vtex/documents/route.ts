@@ -1,4 +1,12 @@
 import { NextResponse } from "next/server";
+import {
+  checkRateLimit,
+  extractClientIp,
+  normalizeValue,
+  sanitizePagination,
+  validateCredentials,
+  validateEntityIdentifier,
+} from "@/lib/security";
 
 type RequestBody = {
   accountName?: string;
@@ -124,24 +132,61 @@ const parseTotalFromHeaders = (headers: Headers): number | null => {
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as RequestBody;
-    const {
-      accountName,
-      appKey,
-      appToken,
-      version = "v1",
-      entity,
-      schema,
-      page = 1,
-      pageSize = 50,
-    } = body;
+    const requesterIp = extractClientIp(request);
+    const rateLimit = checkRateLimit(`documents:${requesterIp}`, 120, 60_000);
 
-    if (!accountName || !appKey || !appToken || !entity) {
+    if (!rateLimit.allowed) {
       return NextResponse.json(
-        { error: "Informe vendor, app key, app token e entidade." },
-        { status: 400 },
+        { error: "Muitas requisições. Tente novamente em instantes." },
+        { status: 429 },
       );
     }
+
+    const body = (await request.json()) as RequestBody;
+    const {
+      accountName: rawAccountName,
+      appKey: rawAppKey,
+      appToken: rawAppToken,
+      version = "v1",
+      entity: rawEntity,
+      schema: rawSchema,
+      page: rawPage,
+      pageSize: rawPageSize,
+    } = body;
+
+    if (version !== "v1" && version !== "v2") {
+      return NextResponse.json({ error: "Versão inválida." }, { status: 400 });
+    }
+
+    const accountName = normalizeValue(rawAccountName);
+    const appKey = normalizeValue(rawAppKey);
+    const appToken = normalizeValue(rawAppToken);
+    const entity = normalizeValue(rawEntity);
+    const schema = normalizeValue(rawSchema);
+
+    const credentialsError = validateCredentials(accountName, appKey, appToken);
+    if (credentialsError) {
+      return NextResponse.json({ error: credentialsError }, { status: 400 });
+    }
+
+    const entityError = validateEntityIdentifier(entity, "Entidade");
+    if (entityError) {
+      return NextResponse.json({ error: entityError }, { status: 400 });
+    }
+
+    if (schema) {
+      const schemaError = validateEntityIdentifier(schema, "Schema");
+      if (schemaError) {
+        return NextResponse.json({ error: schemaError }, { status: 400 });
+      }
+    }
+
+    const paginationInput = sanitizePagination(rawPage, rawPageSize);
+    if ("error" in paginationInput) {
+      return NextResponse.json({ error: paginationInput.error }, { status: 400 });
+    }
+
+    const { page, pageSize } = paginationInput;
 
     const baseUrl = buildBaseUrl(accountName);
     const headers = buildHeaders(appKey, appToken);
@@ -155,7 +200,7 @@ export async function POST(request: Request) {
     );
 
     if (version === "v2") {
-      let schemaToUse = schema;
+      let schemaToUse = schema || undefined;
 
       if (!schemaToUse) {
         const schemas = await fetchSchemas(baseUrl, entity, headers);

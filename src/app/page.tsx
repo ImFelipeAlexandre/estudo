@@ -1,9 +1,12 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import * as XLSX from "xlsx";
 
 const LOCAL_STORAGE_CREDENTIALS_KEY = "vtex.md.quick.credentials";
+
+type SavedLocalConfig = {
+  accountName: string;
+};
 
 type Version = "v1" | "v2";
 
@@ -44,12 +47,13 @@ const INITIAL_PAGINATION: PaginationState = {
 
 const entityId = (entity: Entity) => `${entity.acronym}::${entity.schema ?? ""}`;
 
+const getHeaders = (rows: Record<string, unknown>[]) =>
+  Array.from(new Set(rows.flatMap((row) => Object.keys(row))));
+
 const toCsv = (rows: Record<string, unknown>[]) => {
   if (!rows.length) return "";
 
-  const headers = Array.from(
-    new Set(rows.flatMap((row) => Object.keys(row))),
-  );
+  const headers = getHeaders(rows);
 
   const escapeCell = (value: unknown) => {
     const parsed =
@@ -64,6 +68,35 @@ const toCsv = (rows: Record<string, unknown>[]) => {
   });
 
   return lines.join("\n");
+};
+
+const escapeHtml = (value: unknown) => {
+  const plain =
+    typeof value === "string" ? value : JSON.stringify(value ?? "");
+
+  return plain
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+};
+
+const toXlsHtml = (rows: Record<string, unknown>[]) => {
+  if (!rows.length) return "";
+
+  const headers = getHeaders(rows);
+  const headerCells = headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("");
+  const bodyRows = rows
+    .map((row) => {
+      const cells = headers
+        .map((header) => `<td>${escapeHtml(row[header])}</td>`)
+        .join("");
+      return `<tr>${cells}</tr>`;
+    })
+    .join("");
+
+  return `\uFEFF<html><head><meta charset="UTF-8" /></head><body><table border="1"><thead><tr>${headerCells}</tr></thead><tbody>${bodyRows}</tbody></table></body></html>`;
 };
 
 const downloadFile = (content: string, filename: string, type: string) => {
@@ -217,9 +250,12 @@ export default function Home() {
     }
 
     try {
-      const saved = JSON.parse(savedRaw) as Credentials;
-      if (saved.accountName && saved.appKey && saved.appToken) {
-        setCredentials(saved);
+      const saved = JSON.parse(savedRaw) as SavedLocalConfig;
+      if (saved.accountName) {
+        setCredentials((previous) => ({
+          ...previous,
+          accountName: saved.accountName,
+        }));
         setSaveCredentialsLocally(true);
       }
     } catch {
@@ -301,9 +337,13 @@ export default function Home() {
       setViewMode("table");
 
       if (saveCredentialsLocally) {
+        const localConfig: SavedLocalConfig = {
+          accountName: credentials.accountName,
+        };
+
         window.localStorage.setItem(
           LOCAL_STORAGE_CREDENTIALS_KEY,
-          JSON.stringify(credentials),
+          JSON.stringify(localConfig),
         );
       } else {
         window.localStorage.removeItem(LOCAL_STORAGE_CREDENTIALS_KEY);
@@ -402,10 +442,11 @@ export default function Home() {
 
   const handleExportXls = () => {
     if (!records.length) return;
-    const worksheet = XLSX.utils.json_to_sheet(records);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Dados");
-    XLSX.writeFile(workbook, `${filePrefix}.xlsx`);
+    downloadFile(
+      toXlsHtml(records),
+      `${filePrefix}.xls`,
+      "application/vnd.ms-excel;charset=utf-8;",
+    );
   };
 
   const handleSearchV2Entities = (event: FormEvent<HTMLFormElement>) => {
@@ -524,7 +565,7 @@ export default function Home() {
                 checked={saveCredentialsLocally}
                 onChange={(event) => setSaveCredentialsLocally(event.target.checked)}
               />
-              Salvar dados neste dispositivo para consulta rápida (local)
+              Salvar apenas o vendor neste dispositivo (local)
             </label>
 
             {error ? (
