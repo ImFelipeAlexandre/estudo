@@ -3,9 +3,14 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const LOCAL_STORAGE_CREDENTIALS_KEY = "vtex.md.quick.credentials";
+const LOCAL_STORAGE_EXPORT_METRICS_KEY = "vtex.md.export.metrics";
 
 type SavedLocalConfig = {
   accountName: string;
+};
+
+type ExportMetrics = {
+  durationsMs: number[];
 };
 
 type Version = "v1" | "v2";
@@ -43,6 +48,40 @@ const INITIAL_PAGINATION: PaginationState = {
   totalPages: null,
   hasPrevious: false,
   hasNext: false,
+};
+
+const formatSeconds = (valueMs: number) => {
+  const seconds = Math.max(0, Math.round(valueMs / 1000));
+  return `${seconds}s`;
+};
+
+const readExportMetrics = (): ExportMetrics => {
+  try {
+    const raw = window.localStorage.getItem(LOCAL_STORAGE_EXPORT_METRICS_KEY);
+    if (!raw) {
+      return { durationsMs: [] };
+    }
+
+    const parsed = JSON.parse(raw) as ExportMetrics;
+    if (!Array.isArray(parsed.durationsMs)) {
+      return { durationsMs: [] };
+    }
+
+    return {
+      durationsMs: parsed.durationsMs.filter(
+        (value) => Number.isFinite(value) && value > 0,
+      ),
+    };
+  } catch {
+    return { durationsMs: [] };
+  }
+};
+
+const writeExportMetrics = (metrics: ExportMetrics) => {
+  window.localStorage.setItem(
+    LOCAL_STORAGE_EXPORT_METRICS_KEY,
+    JSON.stringify(metrics),
+  );
 };
 
 const entityId = (entity: Entity) => `${entity.acronym}::${entity.schema ?? ""}`;
@@ -152,6 +191,8 @@ export default function Home() {
   const [loadingEntities, setLoadingEntities] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const [loadingExport, setLoadingExport] = useState(false);
+  const [exportElapsedMs, setExportElapsedMs] = useState(0);
+  const [averageExportMs, setAverageExportMs] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tableScrollState, setTableScrollState] = useState({
     showHint: false,
@@ -164,6 +205,7 @@ export default function Home() {
     startWidth: number;
   } | null>(null);
   const tableScrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const exportStartRef = useRef<number | null>(null);
 
   const currentEntities = entitiesV1;
 
@@ -201,6 +243,26 @@ export default function Home() {
       ),
     [columns, columnWidths],
   );
+
+  const exportProgressPercent = useMemo(() => {
+    if (!loadingExport) {
+      return 0;
+    }
+
+    if (averageExportMs && averageExportMs > 0) {
+      return Math.min(95, (exportElapsedMs / averageExportMs) * 100);
+    }
+
+    return Math.min(85, (exportElapsedMs / 15000) * 100);
+  }, [loadingExport, averageExportMs, exportElapsedMs]);
+
+  const exportEtaMs = useMemo(() => {
+    if (!loadingExport || !averageExportMs) {
+      return null;
+    }
+
+    return Math.max(0, averageExportMs - exportElapsedMs);
+  }, [loadingExport, averageExportMs, exportElapsedMs]);
 
   const updateTableScrollState = useCallback(() => {
     const element = tableScrollContainerRef.current;
@@ -264,6 +326,21 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    const metrics = readExportMetrics();
+
+    if (!metrics.durationsMs.length) {
+      setAverageExportMs(null);
+      return;
+    }
+
+    const average =
+      metrics.durationsMs.reduce((sum, value) => sum + value, 0) /
+      metrics.durationsMs.length;
+
+    setAverageExportMs(average);
+  }, []);
+
+  useEffect(() => {
     const onMouseMove = (event: MouseEvent) => {
       const resizing = resizingStateRef.current;
       if (!resizing) return;
@@ -306,6 +383,25 @@ export default function Home() {
       window.removeEventListener("resize", onResize);
     };
   }, [updateTableScrollState, records, columns, totalTableWidth, viewMode]);
+
+  useEffect(() => {
+    if (!loadingExport) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      const start = exportStartRef.current;
+      if (!start) {
+        return;
+      }
+
+      setExportElapsedMs(Date.now() - start);
+    }, 250);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [loadingExport]);
 
   const loadVersionEntities = async (version: Version, creds: Credentials) => {
     if (version !== "v1") {
@@ -432,6 +528,8 @@ export default function Home() {
 
     setError(null);
     setLoadingExport(true);
+    setExportElapsedMs(0);
+    exportStartRef.current = Date.now();
 
     try {
       const response = await fetch("/api/vtex/export", {
@@ -459,6 +557,21 @@ export default function Home() {
         setError("Exportação parcial: limite de paginação atingido.");
       }
 
+      const completedAt = Date.now();
+      const start = exportStartRef.current;
+
+      if (start) {
+        const duration = completedAt - start;
+        const currentMetrics = readExportMetrics();
+        const nextDurations = [...currentMetrics.durationsMs, duration].slice(-20);
+        writeExportMetrics({ durationsMs: nextDurations });
+
+        const nextAverage =
+          nextDurations.reduce((sum, value) => sum + value, 0) /
+          nextDurations.length;
+        setAverageExportMs(nextAverage);
+      }
+
       return payload.records ?? [];
     } catch (exportError) {
       setError(
@@ -468,6 +581,7 @@ export default function Home() {
       );
       return null;
     } finally {
+      exportStartRef.current = null;
       setLoadingExport(false);
     }
   };
@@ -860,6 +974,27 @@ export default function Home() {
               </button>
             </div>
           </div>
+
+          {loadingExport ? (
+            <div className="mt-3 space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wider text-slate-600">
+                <span>Exportando dados completos...</span>
+                <span>{Math.round(exportProgressPercent)}%</span>
+              </div>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200">
+                <div
+                  className="h-full rounded-full bg-blue-600 transition-all duration-300"
+                  style={{ width: `${exportProgressPercent}%` }}
+                />
+              </div>
+              <p className="text-xs font-medium text-slate-600">
+                Decorrido: {formatSeconds(exportElapsedMs)}
+                {averageExportMs
+                  ? ` • Tempo médio: ${formatSeconds(averageExportMs)} • Restante estimado: ${formatSeconds(exportEtaMs ?? 0)}`
+                  : " • Estimativa sendo aprendida"}
+              </p>
+            </div>
+          ) : null}
 
           {error ? (
             <p className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>
