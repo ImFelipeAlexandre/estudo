@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 
 const LOCAL_STORAGE_CREDENTIALS_KEY = "vtex.md.quick.credentials";
@@ -121,11 +121,17 @@ export default function Home() {
   const [loadingEntities, setLoadingEntities] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tableScrollState, setTableScrollState] = useState({
+    showHint: false,
+    canScrollLeft: false,
+    canScrollRight: false,
+  });
   const resizingStateRef = useRef<{
     column: string;
     startX: number;
     startWidth: number;
   } | null>(null);
+  const tableScrollContainerRef = useRef<HTMLDivElement | null>(null);
 
   const filteredV2Entities = useMemo(() => {
     const term = v2SearchedEntityQuery.trim().toLowerCase();
@@ -177,6 +183,30 @@ export default function Home() {
       ),
     [columns, columnWidths],
   );
+
+  const updateTableScrollState = useCallback(() => {
+    const element = tableScrollContainerRef.current;
+
+    if (!element) {
+      setTableScrollState({
+        showHint: false,
+        canScrollLeft: false,
+        canScrollRight: false,
+      });
+      return;
+    }
+
+    const hasHorizontalOverflow = element.scrollWidth - element.clientWidth > 2;
+    const canScrollLeft = element.scrollLeft > 2;
+    const canScrollRight =
+      element.scrollLeft + element.clientWidth < element.scrollWidth - 2;
+
+    setTableScrollState({
+      showHint: hasHorizontalOverflow,
+      canScrollLeft,
+      canScrollRight,
+    });
+  }, []);
 
   const filePrefix = useMemo(() => {
     if (!effectiveEntity) return `masterdata-${activeVersion}`;
@@ -240,6 +270,21 @@ export default function Home() {
       window.removeEventListener("mouseup", onMouseUp);
     };
   }, []);
+
+  useEffect(() => {
+    const raf = window.requestAnimationFrame(updateTableScrollState);
+
+    const onResize = () => {
+      updateTableScrollState();
+    };
+
+    window.addEventListener("resize", onResize);
+
+    return () => {
+      window.cancelAnimationFrame(raf);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [updateTableScrollState, records, columns, totalTableWidth, viewMode]);
 
   const loadVersionEntities = async (version: Version, creds: Credentials) => {
     const loadedEntities = await fetchEntities(creds, version);
@@ -784,8 +829,18 @@ export default function Home() {
           </p>
 
           {viewMode === "table" ? (
-            <div className="mt-4 w-full max-w-full overflow-hidden rounded-xl border border-slate-200">
-              <div className="w-full max-w-full min-w-0 overflow-x-auto overscroll-x-contain [webkit-overflow-scrolling:touch]">
+            <div className="relative mt-4 w-full max-w-full overflow-hidden rounded-xl border border-slate-200 bg-white">
+              {tableScrollState.showHint ? (
+                <div className="pointer-events-none absolute right-3 top-3 z-20 rounded-full bg-slate-900/80 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-white shadow-sm">
+                  Arraste lateral ↔
+                </div>
+              ) : null}
+
+              <div
+                ref={tableScrollContainerRef}
+                onScroll={updateTableScrollState}
+                className="w-full max-w-full min-w-0 overflow-x-auto overscroll-x-contain [webkit-overflow-scrolling:touch]"
+              >
                 <div className="max-h-[60vh] min-w-0 overflow-y-auto">
                   <table
                     className="border-collapse text-sm"
@@ -840,6 +895,21 @@ export default function Home() {
                 </table>
                 </div>
               </div>
+
+              {tableScrollState.showHint ? (
+                <>
+                  <div
+                    className={`pointer-events-none absolute inset-y-0 left-0 z-10 w-8 bg-gradient-to-r from-white to-transparent transition-opacity ${
+                      tableScrollState.canScrollLeft ? "opacity-100" : "opacity-0"
+                    }`}
+                  />
+                  <div
+                    className={`pointer-events-none absolute inset-y-0 right-0 z-10 w-8 bg-gradient-to-l from-white to-transparent transition-opacity ${
+                      tableScrollState.canScrollRight ? "opacity-100" : "opacity-0"
+                    }`}
+                  />
+                </>
+              ) : null}
             </div>
           ) : (
             <pre className="mt-5 max-h-[620px] overflow-auto rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs leading-5">
