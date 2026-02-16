@@ -20,6 +20,7 @@ type ExportResponse = {
   records: Record<string, unknown>[];
   batches: number;
   truncated: boolean;
+  strategy: "v1-scroll" | "v1-search-fallback" | "v2-search";
 };
 
 const MAX_BATCHES = 200;
@@ -47,6 +48,103 @@ const buildHeaders = (
 
 const buildBaseUrl = (accountName: string) =>
   `https://${accountName}.vtexcommercestable.com.br`;
+
+const parseTotalFromHeaders = (headers: Headers): number | null => {
+  const directTotal = headers.get("x-vtex-md-total");
+  if (directTotal && Number.isFinite(Number(directTotal))) {
+    return Number(directTotal);
+  }
+
+  const contentRange = headers.get("rest-content-range");
+  if (!contentRange) {
+    return null;
+  }
+
+  const match = contentRange.match(/\/(\d+)$/);
+  if (!match) {
+    return null;
+  }
+
+  return Number(match[1]);
+};
+
+const exportV1SearchFallback = async (
+  baseUrl: string,
+  entity: string,
+  appKey: string,
+  appToken: string,
+  schema?: string,
+): Promise<ExportResponse | { error: string; status: number }> => {
+  let batches = 0;
+  let page = 1;
+  const allRecords: Record<string, unknown>[] = [];
+
+  while (batches < MAX_BATCHES) {
+    batches += 1;
+
+    const from = (page - 1) * PAGE_SIZE_V1;
+    const to = from + PAGE_SIZE_V1 - 1;
+
+    const query = new URLSearchParams({
+      _fields: "_all",
+      _sort: "id ASC",
+    });
+
+    if (schema) {
+      query.set("_schema", schema);
+    }
+
+    const response = await fetch(
+      `${baseUrl}/api/dataentities/${entity}/search?${query.toString()}`,
+      {
+        method: "GET",
+        headers: {
+          ...buildHeaders(appKey, appToken),
+          "REST-Range": `resources=${from}-${to}`,
+        },
+        cache: "no-store",
+      },
+    );
+
+    if (!response.ok) {
+      return {
+        error: "Falha ao exportar registros do V1 no fallback de paginação.",
+        status: response.status,
+      };
+    }
+
+    const chunk = (await response.json()) as Record<string, unknown>[];
+    allRecords.push(...chunk);
+
+    const total = parseTotalFromHeaders(response.headers);
+    if (chunk.length < PAGE_SIZE_V1) {
+      return {
+        records: allRecords,
+        batches,
+        truncated: false,
+        strategy: "v1-search-fallback",
+      };
+    }
+
+    if (total !== null && allRecords.length >= total) {
+      return {
+        records: allRecords,
+        batches,
+        truncated: false,
+        strategy: "v1-search-fallback",
+      };
+    }
+
+    page += 1;
+  }
+
+  return {
+    records: allRecords,
+    batches,
+    truncated: true,
+    strategy: "v1-search-fallback",
+  };
+};
 
 const resolveV2Schema = async (
   baseUrl: string,
@@ -108,8 +206,9 @@ const exportV1Scroll = async (
     );
 
     if (!response.ok) {
+      const debugDetail = (await response.text()).slice(0, 200);
       return {
-        error: "Falha ao exportar registros do V1 via scroll.",
+        error: `Falha ao exportar registros do V1 via scroll. ${debugDetail}`,
         status: response.status,
       };
     }
@@ -124,6 +223,7 @@ const exportV1Scroll = async (
         records: allRecords,
         batches,
         truncated: visitedTokens.has(nextToken ?? ""),
+        strategy: "v1-scroll",
       };
     }
 
@@ -135,6 +235,7 @@ const exportV1Scroll = async (
     records: allRecords,
     batches,
     truncated: true,
+    strategy: "v1-scroll",
   };
 };
 
@@ -198,6 +299,7 @@ const exportV2Search = async (
         records: allRecords,
         batches,
         truncated: false,
+        strategy: "v2-search",
       };
     }
 
@@ -208,6 +310,7 @@ const exportV2Search = async (
     records: allRecords,
     batches,
     truncated: true,
+    strategy: "v2-search",
   };
 };
 
@@ -255,10 +358,39 @@ export async function POST(request: Request) {
 
     const baseUrl = buildBaseUrl(accountName);
 
-    const result =
-      version === "v1"
-        ? await exportV1Scroll(baseUrl, entity, appKey, appToken, schema || undefined)
-        : await exportV2Search(baseUrl, entity, appKey, appToken, schema || undefined);
+    let result: ExportResponse | { error: string; status: number };
+
+    if (version === "v1") {
+      const scrollResult = await exportV1Scroll(
+        baseUrl,
+        entity,
+        appKey,
+        appToken,
+        schema || undefined,
+      );
+
+      if ("error" in scrollResult) {
+        const fallbackResult = await exportV1SearchFallback(
+          baseUrl,
+          entity,
+          appKey,
+          appToken,
+          schema || undefined,
+        );
+
+        result = fallbackResult;
+      } else {
+        result = scrollResult;
+      }
+    } else {
+      result = await exportV2Search(
+        baseUrl,
+        entity,
+        appKey,
+        appToken,
+        schema || undefined,
+      );
+    }
 
     if ("error" in result) {
       return NextResponse.json({ error: result.error }, { status: result.status });
