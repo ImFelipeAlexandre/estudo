@@ -74,22 +74,24 @@ const fetchRecordsBySchema = async (
   const to = from + pageSize - 1;
 
   const query = new URLSearchParams({
-    _page: String(page),
-    _size: String(pageSize),
-    _from: String(from),
-    _to: String(to),
     _fields: "_all",
+    _sort: "id ASC",
   });
 
   if (schemaName) {
     query.set("_schema", schemaName);
   }
 
+  const requestHeaders = {
+    ...headers,
+    "REST-Range": `resources=${from}-${to}`,
+  };
+
   const response = await fetch(
     `${baseUrl}/api/dataentities/${entity}/search?${query.toString()}`,
     {
       method: "GET",
-      headers,
+      headers: requestHeaders,
       cache: "no-store",
     },
   );
