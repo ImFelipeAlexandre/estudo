@@ -151,6 +151,7 @@ export default function Home() {
   const [loadingAuth, setLoadingAuth] = useState(false);
   const [loadingEntities, setLoadingEntities] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
+  const [loadingExport, setLoadingExport] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tableScrollState, setTableScrollState] = useState({
     showHint: false,
@@ -424,24 +425,81 @@ export default function Home() {
     await loadDataPage(1, pagination.pageSize);
   };
 
-  const handleExportCsv = () => {
-    if (!records.length) return;
-    downloadFile(toCsv(records), `${filePrefix}.csv`, "text/csv;charset=utf-8;");
+  const fetchAllRecordsForExport = async () => {
+    if (!session || !effectiveEntity) {
+      return null;
+    }
+
+    setError(null);
+    setLoadingExport(true);
+
+    try {
+      const response = await fetch("/api/vtex/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...session,
+          version: activeVersion,
+          entity: effectiveEntity.acronym,
+          schema: effectiveEntity.schema,
+        }),
+      });
+
+      const payload = (await response.json()) as {
+        records?: Record<string, unknown>[];
+        truncated?: boolean;
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Falha ao exportar registros.");
+      }
+
+      if (payload.truncated) {
+        setError("Exportação parcial: limite de paginação atingido.");
+      }
+
+      return payload.records ?? [];
+    } catch (exportError) {
+      setError(
+        exportError instanceof Error
+          ? exportError.message
+          : "Erro ao exportar dados.",
+      );
+      return null;
+    } finally {
+      setLoadingExport(false);
+    }
   };
 
-  const handleExportJson = () => {
-    if (!records.length) return;
+  const handleExportCsv = async () => {
+    const exportedRecords = await fetchAllRecordsForExport();
+    if (!exportedRecords?.length) return;
+
     downloadFile(
-      JSON.stringify(records, null, 2),
+      toCsv(exportedRecords),
+      `${filePrefix}.csv`,
+      "text/csv;charset=utf-8;",
+    );
+  };
+
+  const handleExportJson = async () => {
+    const exportedRecords = await fetchAllRecordsForExport();
+    if (!exportedRecords?.length) return;
+
+    downloadFile(
+      JSON.stringify(exportedRecords, null, 2),
       `${filePrefix}.json`,
       "application/json;charset=utf-8;",
     );
   };
 
-  const handleExportXls = () => {
-    if (!records.length) return;
+  const handleExportXls = async () => {
+    const exportedRecords = await fetchAllRecordsForExport();
+    if (!exportedRecords?.length) return;
+
     downloadFile(
-      toXlsHtml(records),
+      toXlsHtml(exportedRecords),
       `${filePrefix}.xls`,
       "application/vnd.ms-excel;charset=utf-8;",
     );
@@ -712,15 +770,15 @@ export default function Home() {
                 type="button"
                 className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold hover:bg-slate-200 disabled:opacity-50"
                 onClick={handleExportCsv}
-                disabled={!records.length}
+                disabled={!effectiveEntity || loadingExport}
               >
-                CSV Completo
+                {loadingExport ? "Exportando..." : "CSV Completo"}
               </button>
               <button
                 type="button"
                 className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold hover:bg-slate-200 disabled:opacity-50"
                 onClick={handleExportXls}
-                disabled={!records.length}
+                disabled={!effectiveEntity || loadingExport}
               >
                 XLS Completo
               </button>
@@ -728,7 +786,7 @@ export default function Home() {
                 type="button"
                 className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold hover:bg-slate-200 disabled:opacity-50"
                 onClick={handleExportJson}
-                disabled={!records.length}
+                disabled={!effectiveEntity || loadingExport}
               >
                 JSON Completo
               </button>
