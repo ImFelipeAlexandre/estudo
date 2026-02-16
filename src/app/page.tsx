@@ -169,6 +169,15 @@ export default function Home() {
     [records],
   );
 
+  const totalTableWidth = useMemo(
+    () =>
+      columns.reduce(
+        (sum, column) => sum + (columnWidths[column] ?? 220),
+        0,
+      ),
+    [columns, columnWidths],
+  );
+
   const filePrefix = useMemo(() => {
     if (!effectiveEntity) return `masterdata-${activeVersion}`;
     const schemaPart = effectiveEntity.schema ? `-${effectiveEntity.schema}` : "";
@@ -776,11 +785,11 @@ export default function Home() {
 
           {viewMode === "table" ? (
             <div className="mt-4 w-full max-w-full overflow-hidden rounded-xl border border-slate-200">
-              <div className="w-full max-w-full overflow-x-auto overscroll-x-contain [webkit-overflow-scrolling:touch]">
-                <div className="max-h-[60vh] overflow-y-auto">
+              <div className="w-full max-w-full min-w-0 overflow-x-auto overscroll-x-contain [webkit-overflow-scrolling:touch]">
+                <div className="max-h-[60vh] min-w-0 overflow-y-auto">
                   <table
-                    className="min-w-max border-collapse text-sm"
-                    style={{ minWidth: Math.max(columns.length * 180, 760) }}
+                    className="border-collapse text-sm"
+                    style={{ width: Math.max(totalTableWidth, 760), minWidth: 760 }}
                   >
                   <thead className="sticky top-0 z-10 bg-slate-100 text-left uppercase text-xs text-slate-600">
                     <tr>
