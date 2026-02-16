@@ -107,7 +107,6 @@ export default function Home() {
   const [session, setSession] = useState<Credentials | null>(null);
   const [saveCredentialsLocally, setSaveCredentialsLocally] = useState(false);
   const [entitiesV1, setEntitiesV1] = useState<Entity[]>([]);
-  const [entitiesV2, setEntitiesV2] = useState<Entity[]>([]);
   const [activeVersion, setActiveVersion] = useState<Version>("v1");
   const [selectedEntityId, setSelectedEntityId] = useState<string>("");
   const [records, setRecords] = useState<Record<string, unknown>[]>([]);
@@ -133,21 +132,7 @@ export default function Home() {
   } | null>(null);
   const tableScrollContainerRef = useRef<HTMLDivElement | null>(null);
 
-  const filteredV2Entities = useMemo(() => {
-    const term = v2SearchedEntityQuery.trim().toLowerCase();
-
-    if (!term) {
-      return entitiesV2;
-    }
-
-    return entitiesV2.filter((entity) => {
-      const source = `${entity.acronym} ${entity.name ?? ""} ${entity.schema ?? ""}`;
-      return source.toLowerCase().includes(term);
-    });
-  }, [entitiesV2, v2SearchedEntityQuery]);
-
-  const currentEntities =
-    activeVersion === "v1" ? entitiesV1 : filteredV2Entities;
+  const currentEntities = entitiesV1;
 
   const selectedEntity = useMemo(
     () => currentEntities.find((entity) => entityId(entity) === selectedEntityId),
@@ -168,7 +153,7 @@ export default function Home() {
   }, [v2EntityQuery, v2SchemaQuery]);
 
   const effectiveEntity =
-    activeVersion === "v2" ? selectedEntity ?? manualV2Target : selectedEntity;
+    activeVersion === "v2" ? manualV2Target : selectedEntity;
 
   const columns = useMemo(
     () => Array.from(new Set(records.flatMap((record) => Object.keys(record)))),
@@ -215,15 +200,15 @@ export default function Home() {
   }, [activeVersion, effectiveEntity]);
 
   useEffect(() => {
-    if (!currentEntities.length) {
+    if (!entitiesV1.length) {
       setSelectedEntityId("");
       return;
     }
 
-    if (!currentEntities.some((entity) => entityId(entity) === selectedEntityId)) {
-      setSelectedEntityId(entityId(currentEntities[0]));
+    if (!entitiesV1.some((entity) => entityId(entity) === selectedEntityId)) {
+      setSelectedEntityId(entityId(entitiesV1[0]));
     }
-  }, [currentEntities, selectedEntityId]);
+  }, [entitiesV1, selectedEntityId]);
 
   useEffect(() => {
     const savedRaw = window.localStorage.getItem(LOCAL_STORAGE_CREDENTIALS_KEY);
@@ -287,12 +272,12 @@ export default function Home() {
   }, [updateTableScrollState, records, columns, totalTableWidth, viewMode]);
 
   const loadVersionEntities = async (version: Version, creds: Credentials) => {
-    const loadedEntities = await fetchEntities(creds, version);
-    if (version === "v1") {
-      setEntitiesV1(loadedEntities);
+    if (version !== "v1") {
       return;
     }
-    setEntitiesV2(loadedEntities);
+
+    const loadedEntities = await fetchEntities(creds, version);
+    setEntitiesV1(loadedEntities);
   };
 
   const handleAuth = async (event: FormEvent<HTMLFormElement>) => {
@@ -301,14 +286,10 @@ export default function Home() {
     setLoadingAuth(true);
 
     try {
-      const [loadedV1, loadedV2] = await Promise.all([
-        fetchEntities(credentials, "v1"),
-        fetchEntities(credentials, "v2"),
-      ]);
+      const loadedV1 = await fetchEntities(credentials, "v1");
 
       setSession(credentials);
       setEntitiesV1(loadedV1);
-      setEntitiesV2(loadedV2);
       setActiveVersion("v1");
       setV2EntityQuery("");
       setV2SchemaQuery("");
@@ -640,7 +621,6 @@ export default function Home() {
                   value={v2EntityQuery}
                   onChange={(event) => {
                     setV2EntityQuery(event.target.value);
-                    setSelectedEntityId("");
                   }}
                 />
                 <button
@@ -657,40 +637,19 @@ export default function Home() {
                 value={v2SchemaQuery}
                 onChange={(event) => setV2SchemaQuery(event.target.value)}
               />
-
-              {filteredV2Entities.length > 0 ? (
-                <select
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 outline-none focus:border-blue-500"
-                  value={selectedEntityId}
-                  onChange={(event) => {
-                    setSelectedEntityId(event.target.value);
-                    setRecords([]);
-                    setPagination(INITIAL_PAGINATION);
-                  }}
-                >
-                  {filteredV2Entities.map((entity) => (
-                    <option key={entityId(entity)} value={entityId(entity)}>
-                      {entity.name ?? entity.acronym}
-                      {entity.schema ? ` (${entity.schema})` : ""}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <p className="rounded-xl bg-slate-100 px-4 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Sem lista de entidades para o filtro atual. Use o campo manual para consultar.
-                </p>
-              )}
             </div>
           )}
 
-          <button
-            className="mt-4 w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-            type="button"
-            onClick={handleRefreshEntities}
-            disabled={loadingEntities}
-          >
-            {loadingEntities ? "Atualizando..." : "Atualizar lista"}
-          </button>
+          {activeVersion === "v1" ? (
+            <button
+              className="mt-4 w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              type="button"
+              onClick={handleRefreshEntities}
+              disabled={loadingEntities}
+            >
+              {loadingEntities ? "Atualizando..." : "Atualizar lista"}
+            </button>
+          ) : null}
 
           <button
             className="mt-8 w-full rounded-xl border border-red-200 px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50"
@@ -717,7 +676,7 @@ export default function Home() {
               </p>
               {activeVersion === "v2" && v2SearchedEntityQuery ? (
                 <p className="mt-1 text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Busca V2: &quot;{v2SearchedEntityQuery}&quot; • {filteredV2Entities.length} resultado(s)
+                  Busca V2: &quot;{v2SearchedEntityQuery}&quot;
                 </p>
               ) : null}
             </div>
